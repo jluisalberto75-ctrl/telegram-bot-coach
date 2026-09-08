@@ -1,0 +1,51 @@
+PARCHE PARA bot_v6.py
+======================
+
+Busca la función `recibir_explicacion_metodologia` y reemplaza estas dos
+líneas:
+
+ANTES:
+------
+    texto = update.message.text.lower()
+    telegram_id = update.effective_user.id
+
+    # Si viene de la recomendación (Sí/No)
+    if "sí" in texto or "si" in texto:
+
+DESPUÉS:
+--------
+    texto = update.message.text.strip().lower()
+    telegram_id = update.effective_user.id
+
+    # Si viene de la recomendación (Sí/No). Antes esto usaba "in", que es
+    # un substring match: cualquier palabra que contuviera "si" en
+    # cualquier parte (ej. "así prefiero seguir", "decisión") activaba
+    # por error esta rama. Ahora se compara la respuesta completa.
+    if texto in ("sí", "si", "sí.", "si.", "sí!", "si!"):
+
+Y más abajo, reemplaza:
+
+ANTES:
+------
+    elif "no" in texto:
+
+DESPUÉS:
+--------
+    elif texto in ("no", "no.", "no!"):
+
+
+NOTA ADICIONAL (opcional, robustez extra):
+-------------------------------------------
+En `recibir_metodologia`, esta línea puede fallar si por alguna razón
+`dias_entrenamiento` quedó vacío en la base de datos:
+
+    dias = perfil.get("dias_entrenamiento", "3 días")
+    ...
+    if "2" in dias: dias_num = 2
+
+Cámbiala por:
+
+    dias = perfil.get("dias_entrenamiento") or "3 días"
+
+Así, si el valor guardado es None (no solo si la clave no existe), igual
+usa el valor por defecto en vez de lanzar un TypeError.

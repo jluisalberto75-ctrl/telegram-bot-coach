@@ -5,7 +5,6 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -554,13 +553,12 @@ async def recibir_preferencias(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     await update.message.reply_text(
         "¡Perfecto, ya tengo tu perfil! 🎉\n\n"
-        "Ahora, para hacer tu entrenamiento realmente efectivo, vamos a elegir una *metodología de entrenamiento*.\n\n"
+        "Ahora, para hacer tu entrenamiento realmente efectivo, vamos a elegir una **metodología de entrenamiento**.\n\n"
         "Tienes dos opciones:\n"
-        "1️⃣ *Explícame las opciones* → Te explico las metodologías más usadas por corredores profesionales.\n"
-        "2️⃣ *Recomiéndame una* → Basado en tu perfil, te sugiero la mejor para ti.\n\n"
+        "1️⃣ **Explícame las opciones** → Te explico las metodologías más usadas por corredores profesionales.\n"
+        "2️⃣ **Recomiéndame una** → Basado en tu perfil, te sugiero la mejor para ti.\n\n"
         "¿Qué prefieres?",
         reply_markup=teclado,
-        parse_mode=ParseMode.MARKDOWN,
     )
     return METODOLOGIA
 
@@ -571,24 +569,24 @@ async def recibir_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE
     if opcion == "🔍 Explícame las opciones":
         # Explicar las 3 metodologías
         mensaje = (
-            "📚 *Tres metodologías de entrenamiento profesional:*\n\n"
-            "🏃 *1. Entrenamiento Polarizado (80/20)*\n"
+            "📚 **Tres metodologías de entrenamiento profesional:**\n\n"
+            "🏃 **1. Entrenamiento Polarizado (80/20)**\n"
             "• El 80% de tu entrenamiento es a ritmo suave (fácil, conversacional).\n"
             "• El 20% es a ritmo intenso (series, intervalos).\n"
             "• ✅ Ideal para: mejora constante, bajo riesgo de lesiones.\n"
             "• 🏆 Usado por: atletas de élite.\n\n"
-            "📊 *2. Entrenamiento por Ritmo de Carrera (Race Pace)*\n"
+            "📊 **2. Entrenamiento por Ritmo de Carrera (Race Pace)**\n"
             "• Entrenas a los ritmos exactos de tu competencia objetivo.\n"
             "• ✅ Ideal para: afinar tu ritmo específico para 5K, 10K, etc.\n"
             "• 🎯 Ventaja: alta especificidad.\n\n"
-            "❤️ *3. Entrenamiento por Frecuencia Cardíaca (HRV)*\n"
+            "❤️ **3. Entrenamiento por Frecuencia Cardíaca (HRV)**\n"
             "• La intensidad se ajusta según tu frecuencia cardíaca diaria.\n"
             "• ✅ Ideal para: máxima personalización y adaptación.\n"
             "• 📱 Requiere: reloj deportivo con medición de FC.\n\n"
             "Ahora, ¿cuál te gustaría probar?\n"
-            "Escribe el número: *1*, *2* o *3*."
+            "Escribe el número: **1**, **2** o **3**."
         )
-        await update.message.reply_text(mensaje, reply_markup=ReplyKeyboardRemove(), parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(mensaje, reply_markup=ReplyKeyboardRemove())
         return EXPLICAR_METODOLOGIA
     
     elif opcion == "🎯 Recomiéndame una":
@@ -615,16 +613,16 @@ async def recibir_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE
         recomendacion = recomendar_metodologia(nivel, objetivo, dias_num, vdot)
         
         mensaje = (
-            f"🎯 *Mi recomendación para ti:*\n\n"
-            f"📌 *{recomendacion['nombre']}*\n"
+            f"🎯 **Mi recomendación para ti:**\n\n"
+            f"📌 **{recomendacion['nombre']}**\n"
             f"✅ {recomendacion['razon']}\n\n"
-            f"📖 *¿En qué consiste?*\n"
+            f"📖 **¿En qué consiste?**\n"
             f"{recomendacion['explicacion']}\n\n"
             f"¿Quieres empezar con esta metodología?\n"
-            f"Responde *'Sí'* o *'No'* para explorar otras."
+            f"Responde **'Sí'** o **'No'** para explorar otras."
         )
         context.user_data["metodologia_recomendada"] = recomendacion
-        await update.message.reply_text(mensaje, reply_markup=ReplyKeyboardRemove(), parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(mensaje, reply_markup=ReplyKeyboardRemove())
         return EXPLICAR_METODOLOGIA
     
     else:
@@ -653,10 +651,9 @@ async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.
         conexion.close()
         
         await update.message.reply_text(
-            f"¡Perfecto! 🎉 Empezaremos con la metodología *{nombre}*.\n\n"
+            f"¡Perfecto! 🎉 Empezaremos con la metodología **{nombre}**.\n\n"
             "Ahora, dame un momento para armar tu plan de entrenamiento personalizado...",
             reply_markup=ReplyKeyboardRemove(),
-            parse_mode=ParseMode.MARKDOWN,
         )
         await update.message.chat.send_action(action="typing")
         
@@ -672,12 +669,8 @@ async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.
                 "Tuve un problema generando el plan. Pero no te preocupes, "
                 "tengo un plan general para empezar."
             )
-            # contexto_json puede haberse quedado en None si algo falló al
-            # leerlo de la base de datos justo antes de pedir el plan; sin
-            # este 'or {}' el .get() de abajo rompería con
-            # AttributeError en vez de simplemente usar el plan genérico.
             await enviar_mensaje_largo(update, PLANES.get(
-                (contexto_json or {}).get("nivel", "Principiante"),
+                contexto_json.get("nivel", "Principiante"), 
                 PLANES["Principiante"]
             ))
         
@@ -692,12 +685,12 @@ async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.
         # Ofrecer las otras opciones
         mensaje = (
             "Entendido. Estas son las tres metodologías disponibles:\n\n"
-            "1️⃣ *Polarizada (80/20)* - Para mejora constante y segura.\n"
-            "2️⃣ *Ritmo de Carrera* - Para afinar tu ritmo específico.\n"
-            "3️⃣ *Frecuencia Cardíaca* - Para máxima personalización.\n\n"
-            "¿Cuál te gustaría probar? Escribe *1*, *2* o *3*."
+            "1️⃣ **Polarizada (80/20)** - Para mejora constante y segura.\n"
+            "2️⃣ **Ritmo de Carrera** - Para afinar tu ritmo específico.\n"
+            "3️⃣ **Frecuencia Cardíaca** - Para máxima personalización.\n\n"
+            "¿Cuál te gustaría probar? Escribe **1**, **2** o **3**."
         )
-        await update.message.reply_text(mensaje, reply_markup=ReplyKeyboardRemove(), parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(mensaje, reply_markup=ReplyKeyboardRemove())
         return EXPLICAR_METODOLOGIA
     
     # Si viene de la explicación (elige 1, 2 o 3)
@@ -726,10 +719,9 @@ async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.
         conexion.close()
         
         await update.message.reply_text(
-            f"¡Excelente elección! 🎉 Usaremos la metodología *{nombre_elegido}*.\n\n"
+            f"¡Excelente elección! 🎉 Usaremos la metodología **{nombre_elegido}**.\n\n"
             "Ahora, dame un momento para armar tu plan de entrenamiento...",
             reply_markup=ReplyKeyboardRemove(),
-            parse_mode=ParseMode.MARKDOWN,
         )
         await update.message.chat.send_action(action="typing")
         
@@ -745,12 +737,8 @@ async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.
                 "Tuve un problema generando el plan. Pero no te preocupes, "
                 "tengo un plan general para empezar."
             )
-            # contexto_json puede haberse quedado en None si algo falló al
-            # leerlo de la base de datos justo antes de pedir el plan; sin
-            # este 'or {}' el .get() de abajo rompería con
-            # AttributeError en vez de simplemente usar el plan genérico.
             await enviar_mensaje_largo(update, PLANES.get(
-                (contexto_json or {}).get("nivel", "Principiante"),
+                contexto_json.get("nivel", "Principiante"), 
                 PLANES["Principiante"]
             ))
         
@@ -764,10 +752,9 @@ async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.
     else:
         await update.message.reply_text(
             "No entendí tu respuesta. Puedes:\n"
-            "- Escribir *1*, *2* o *3* para elegir una metodología.\n"
-            "- Escribir *Sí* para aceptar mi recomendación.\n"
-            "- Escribir *No* para ver las otras opciones.",
-            parse_mode=ParseMode.MARKDOWN,
+            "- Escribir **1**, **2** o **3** para elegir una metodología.\n"
+            "- Escribir **Sí** para aceptar mi recomendación.\n"
+            "- Escribir **No** para ver las otras opciones."
         )
         return EXPLICAR_METODOLOGIA
 

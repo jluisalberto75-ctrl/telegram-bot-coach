@@ -73,9 +73,55 @@ def calcular_ritmos_entrenamiento(vdot):
     }
     return ritmos
 
+METODOLOGIAS_INFO = {
+    "polarizada": {
+        "metodologia": "polarizada",
+        "nombre": "Entrenamiento Polarizado (80/20)",
+        "razon": "es la que elegiste para tu entrenamiento",
+        "explicacion": (
+            "El 80% de tu entrenamiento es a ritmo suave (fácil, conversacional) "
+            "y solo el 20% a ritmo intenso (series, intervalos). Es la metodología "
+            "usada por la mayoría de atletas de élite para largas distancias."
+        ),
+    },
+    "race_pace": {
+        "metodologia": "race_pace",
+        "nombre": "Entrenamiento por Ritmo de Carrera (Race Pace)",
+        "razon": "es la que elegiste para afinar tu ritmo específico de competencia",
+        "explicacion": (
+            "Este método se enfoca en entrenar a los ritmos exactos que usarás en tu "
+            "competencia objetivo. Es altamente específico y te ayuda a 'memorizar' "
+            "el ritmo de carrera, mejorando tu eficiencia."
+        ),
+    },
+    "hrv": {
+        "metodologia": "hrv",
+        "nombre": "Entrenamiento por Frecuencia Cardíaca (HRV)",
+        "razon": "es la que elegiste para personalizar tu entrenamiento según tu recuperación",
+        "explicacion": (
+            "Usarás tu frecuencia cardíaca para determinar la intensidad del "
+            "entrenamiento, adaptándote a cómo te sientes cada día."
+        ),
+    },
+}
+
+
+def obtener_metodologia_elegida(codigo_metodologia):
+    """
+    Si el corredor ya eligió explícitamente una metodología (guardada en
+    usuarios.metodologia: 'polarizada', 'race_pace' o 'hrv'), devuelve su
+    info fija en vez de recalcular una recomendación automática. Devuelve
+    None si el código no es válido o no hay elección guardada.
+    """
+    if not codigo_metodologia:
+        return None
+    return METODOLOGIAS_INFO.get(codigo_metodologia)
+
+
 def recomendar_metodologia(nivel, objetivo, dias_entrenamiento, vdot):
     """
     Recomienda una metodología basada en el perfil del corredor.
+    Se usa solo cuando el corredor NO eligió una metodología explícita.
     """
     recomendacion = {
         "metodologia": "",
@@ -159,7 +205,13 @@ def obtener_analisis_completo(telegram_id, contexto_base):
     elif "5" in dias or "más" in dias:
         dias_num = 5
     
-    recomendacion = recomendar_metodologia(nivel, objetivo, dias_num, vdot)
+    # Si el corredor ya eligió una metodología explícita (guardada en la
+    # columna usuarios.metodologia cuando responde "1", "2" o "3" en el
+    # bot), respetamos esa elección en vez de recalcular una
+    # recomendación automática que la ignoraría.
+    recomendacion = obtener_metodologia_elegida(contexto_base.get("metodologia"))
+    if recomendacion is None:
+        recomendacion = recomendar_metodologia(nivel, objetivo, dias_num, vdot)
     analisis["metodologia"] = recomendacion["metodologia"]
     analisis["metodologia_nombre"] = recomendacion["nombre"]
     analisis["metodologia_razon"] = recomendacion["razon"]
