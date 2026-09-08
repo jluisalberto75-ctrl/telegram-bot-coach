@@ -1,5 +1,7 @@
 import os
 import sqlite3
+import logging
+import traceback
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
@@ -19,6 +21,8 @@ from database import DB_PATH, iniciar_db
 from context_builder import obtener_contexto_corredor
 from ia_coach import pedir_respuesta_coach, pedir_plan_inicial
 from analisis_runner import recomendar_metodologia, calcular_vdot
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -1022,11 +1026,18 @@ async def manejar_error(update: object, context: ContextTypes.DEFAULT_TYPE):
     Red de seguridad: atrapa cualquier excepción no prevista en cualquier
     handler del bot. Sin esto, un error inesperado deja al usuario viendo
     'escribiendo...' para siempre, porque la excepción sube y nadie
-    manda la respuesta. Esto imprime el detalle en la consola (para que
-    tú puedas diagnosticarlo) y le avisa al usuario en vez de dejarlo
-    mudo.
+    manda la respuesta. Esto imprime el traceback completo en la consola
+    (para que tú puedas diagnosticarlo) y le avisa al usuario en vez de
+    dejarlo mudo.
     """
-    print(f"[bot] Error no manejado: {context.error}")
+    # Antes esto era print(f"...{context.error}") que solo mostraba el
+    # mensaje de la excepción (ej. "BadRequest: Can't parse entities")
+    # sin decir en qué línea/archivo ocurrió. Con el traceback completo
+    # se puede ver exactamente qué reventó y dónde.
+    tb_texto = "".join(
+        traceback.format_exception(None, context.error, context.error.__traceback__)
+    )
+    logger.error("[bot] Error no manejado:\n%s", tb_texto)
 
     if isinstance(update, Update) and update.effective_message:
         try:
