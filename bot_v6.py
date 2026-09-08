@@ -17,6 +17,7 @@ from telegram.ext import (
 from database import DB_PATH, iniciar_db
 from context_builder import obtener_contexto_corredor
 from ia_coach import pedir_respuesta_coach, pedir_plan_inicial
+from analisis_runner import recomendar_metodologia, calcular_vdot
 
 load_dotenv()
 
@@ -289,7 +290,8 @@ def actualizar_marca(telegram_id, columna, tiempo):
     OBJETIVO, TIEMPO_OBJETIVO, FECHA_OBJETIVO,
     DIAS, MINUTOS, DIAS_PREFERIDOS,
     RESTRICCIONES, PREFERENCIAS,
-) = range(17)
+    METODOLOGIA, EXPLICAR_METODOLOGIA
+) = range(19)
 
 (REPORTAR_SENSACION,) = range(200, 201)
 
@@ -543,39 +545,218 @@ async def recibir_preferencias(update: Update, context: ContextTypes.DEFAULT_TYP
     telegram_id = update.effective_user.id
     guardar_perfil_completo(telegram_id, context.user_data)
 
-    nombre = context.user_data["nombre"]
-    nivel = context.user_data["nivel"]
-
-    await update.message.reply_text(
-        f"¡Listo, {nombre}! 🎉 Ya tengo tu perfil completo. Dame un momento, "
-        "estoy armando tu plan de entrenamiento personalizado...",
-        reply_markup=ReplyKeyboardRemove(),
+    # ----- NUEVO: PREGUNTAR POR METODOLOGÍA -----
+    teclado = ReplyKeyboardMarkup(
+        [["🔍 Explícame las opciones", "🎯 Recomiéndame una"]],
+        one_time_keyboard=True,
+        resize_keyboard=True,
     )
-    await update.message.chat.send_action(action="typing")
+    await update.message.reply_text(
+        "¡Perfecto, ya tengo tu perfil! 🎉\n\n"
+        "Ahora, para hacer tu entrenamiento realmente efectivo, vamos a elegir una **metodología de entrenamiento**.\n\n"
+        "Tienes dos opciones:\n"
+        "1️⃣ **Explícame las opciones** → Te explico las metodologías más usadas por corredores profesionales.\n"
+        "2️⃣ **Recomiéndame una** → Basado en tu perfil, te sugiero la mejor para ti.\n\n"
+        "¿Qué prefieres?",
+        reply_markup=teclado,
+    )
+    return METODOLOGIA
 
-    contexto_json = obtener_contexto_corredor(telegram_id)
-    plan_texto = pedir_plan_inicial(contexto_json)
 
-    if plan_texto is None:
-        # La IA no respondió (sin API key, sin conexión, error puntual).
-        # Mostramos el plan fijo por nivel para no dejar al corredor sin
-        # nada, y avisamos que puede intentar generar el detallado luego.
-        await enviar_mensaje_largo(update, PLANES[nivel])
-        await update.message.reply_text(
-            "Ese es un plan general mientras tanto — escribe /start más "
-            "tarde para intentar generar tu plan detallado de nuevo."
+async def recibir_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    opcion = update.message.text
+    
+    if opcion == "🔍 Explícame las opciones":
+        # Explicar las 3 metodologías
+        mensaje = (
+            "📚 **Tres metodologías de entrenamiento profesional:**\n\n"
+            "🏃 **1. Entrenamiento Polarizado (80/20)**\n"
+            "• El 80% de tu entrenamiento es a ritmo suave (fácil, conversacional).\n"
+            "• El 20% es a ritmo intenso (series, intervalos).\n"
+            "• ✅ Ideal para: mejora constante, bajo riesgo de lesiones.\n"
+            "• 🏆 Usado por: atletas de élite.\n\n"
+            "📊 **2. Entrenamiento por Ritmo de Carrera (Race Pace)**\n"
+            "• Entrenas a los ritmos exactos de tu competencia objetivo.\n"
+            "• ✅ Ideal para: afinar tu ritmo específico para 5K, 10K, etc.\n"
+            "• 🎯 Ventaja: alta especificidad.\n\n"
+            "❤️ **3. Entrenamiento por Frecuencia Cardíaca (HRV)**\n"
+            "• La intensidad se ajusta según tu frecuencia cardíaca diaria.\n"
+            "• ✅ Ideal para: máxima personalización y adaptación.\n"
+            "• 📱 Requiere: reloj deportivo con medición de FC.\n\n"
+            "Ahora, ¿cuál te gustaría probar?\n"
+            "Escribe el número: **1**, **2** o **3**."
         )
+        await update.message.reply_text(mensaje, reply_markup=ReplyKeyboardRemove())
+        return EXPLICAR_METODOLOGIA
+    
+    elif opcion == "🎯 Recomiéndame una":
+        # Usar la función de recomendación
+        # Obtener datos del perfil
+        perfil = obtener_usuario(update.effective_user.id)
+        if not perfil:
+            await update.message.reply_text("No encontré tu perfil. Escribe /start para crear uno.")
+            return ConversationHandler.END
+        
+        # Calcular VDOT
+        vdot = calcular_vdot(dict(perfil))
+        
+        # Recomendar metodología
+        nivel = perfil.get("nivel", "Principiante")
+        objetivo = perfil.get("objetivo_principal", "Mantenerme en forma")
+        dias = perfil.get("dias_entrenamiento", "3 días")
+        dias_num = 3
+        if "2" in dias: dias_num = 2
+        elif "3" in dias: dias_num = 3
+        elif "4" in dias: dias_num = 4
+        elif "5" in dias or "más" in dias: dias_num = 5
+        
+        recomendacion = recomendar_metodologia(nivel, objetivo, dias_num, vdot)
+        
+        mensaje = (
+            f"🎯 **Mi recomendación para ti:**\n\n"
+            f"📌 **{recomendacion['nombre']}**\n"
+            f"✅ {recomendacion['razon']}\n\n"
+            f"📖 **¿En qué consiste?**\n"
+            f"{recomendacion['explicacion']}\n\n"
+            f"¿Quieres empezar con esta metodología?\n"
+            f"Responde **'Sí'** o **'No'** para explorar otras."
+        )
+        context.user_data["metodologia_recomendada"] = recomendacion
+        await update.message.reply_text(mensaje, reply_markup=ReplyKeyboardRemove())
+        return EXPLICAR_METODOLOGIA
+    
     else:
-        guardar_plan_texto(telegram_id, plan_texto)
-        await enviar_mensaje_largo(update, plan_texto)
+        await update.message.reply_text("Elige una opción con los botones.")
+        return METODOLOGIA
 
-    await update.message.reply_text(
-        "Guardé todos tus datos. Usa el menú de abajo cuando quieras "
-        "registrar algo, ver tu plan o contarme cómo te sientes — o "
-        "mándame cualquier pregunta directamente.",
-        reply_markup=teclado_principal(),
-    )
-    return ConversationHandler.END
+
+async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = update.message.text.lower()
+    telegram_id = update.effective_user.id
+    
+    # Si viene de la recomendación (Sí/No)
+    if "sí" in texto or "si" in texto:
+        recomendacion = context.user_data.get("metodologia_recomendada", {})
+        metodologia = recomendacion.get("metodologia", "polarizada")
+        nombre = recomendacion.get("nombre", "Polarizada (80/20)")
+        
+        # Guardar la metodología en el perfil
+        conexion = sqlite3.connect(DB_PATH)
+        cursor = conexion.cursor()
+        cursor.execute(
+            "UPDATE usuarios SET metodologia = ? WHERE telegram_id = ?",
+            (metodologia, telegram_id)
+        )
+        conexion.commit()
+        conexion.close()
+        
+        await update.message.reply_text(
+            f"¡Perfecto! 🎉 Empezaremos con la metodología **{nombre}**.\n\n"
+            "Ahora, dame un momento para armar tu plan de entrenamiento personalizado...",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        await update.message.chat.send_action(action="typing")
+        
+        # Generar el plan con la IA usando la metodología
+        contexto_json = obtener_contexto_corredor(telegram_id)
+        plan_texto = pedir_plan_inicial(contexto_json)
+        
+        if plan_texto:
+            guardar_plan_texto(telegram_id, plan_texto)
+            await enviar_mensaje_largo(update, plan_texto)
+        else:
+            await update.message.reply_text(
+                "Tuve un problema generando el plan. Pero no te preocupes, "
+                "tengo un plan general para empezar."
+            )
+            await enviar_mensaje_largo(update, PLANES.get(
+                contexto_json.get("nivel", "Principiante"), 
+                PLANES["Principiante"]
+            ))
+        
+        await update.message.reply_text(
+            "¡Listo! 🏃 Usa el menú de abajo para registrar entrenamientos, "
+            "ver tu plan o preguntarme cualquier cosa.",
+            reply_markup=teclado_principal(),
+        )
+        return ConversationHandler.END
+    
+    elif "no" in texto:
+        # Ofrecer las otras opciones
+        mensaje = (
+            "Entendido. Estas son las tres metodologías disponibles:\n\n"
+            "1️⃣ **Polarizada (80/20)** - Para mejora constante y segura.\n"
+            "2️⃣ **Ritmo de Carrera** - Para afinar tu ritmo específico.\n"
+            "3️⃣ **Frecuencia Cardíaca** - Para máxima personalización.\n\n"
+            "¿Cuál te gustaría probar? Escribe **1**, **2** o **3**."
+        )
+        await update.message.reply_text(mensaje, reply_markup=ReplyKeyboardRemove())
+        return EXPLICAR_METODOLOGIA
+    
+    # Si viene de la explicación (elige 1, 2 o 3)
+    elif texto in ["1", "2", "3"]:
+        metodologias = {
+            "1": "polarizada",
+            "2": "race_pace",
+            "3": "hrv"
+        }
+        nombres = {
+            "1": "Polarizada (80/20)",
+            "2": "Ritmo de Carrera",
+            "3": "Frecuencia Cardíaca"
+        }
+        metodologia_elegida = metodologias.get(texto, "polarizada")
+        nombre_elegido = nombres.get(texto, "Polarizada (80/20)")
+        
+        # Guardar en base de datos
+        conexion = sqlite3.connect(DB_PATH)
+        cursor = conexion.cursor()
+        cursor.execute(
+            "UPDATE usuarios SET metodologia = ? WHERE telegram_id = ?",
+            (metodologia_elegida, telegram_id)
+        )
+        conexion.commit()
+        conexion.close()
+        
+        await update.message.reply_text(
+            f"¡Excelente elección! 🎉 Usaremos la metodología **{nombre_elegido}**.\n\n"
+            "Ahora, dame un momento para armar tu plan de entrenamiento...",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        await update.message.chat.send_action(action="typing")
+        
+        # Generar plan
+        contexto_json = obtener_contexto_corredor(telegram_id)
+        plan_texto = pedir_plan_inicial(contexto_json)
+        
+        if plan_texto:
+            guardar_plan_texto(telegram_id, plan_texto)
+            await enviar_mensaje_largo(update, plan_texto)
+        else:
+            await update.message.reply_text(
+                "Tuve un problema generando el plan. Pero no te preocupes, "
+                "tengo un plan general para empezar."
+            )
+            await enviar_mensaje_largo(update, PLANES.get(
+                contexto_json.get("nivel", "Principiante"), 
+                PLANES["Principiante"]
+            ))
+        
+        await update.message.reply_text(
+            "¡Listo! 🏃 Usa el menú de abajo para registrar entrenamientos, "
+            "ver tu plan o preguntarme cualquier cosa.",
+            reply_markup=teclado_principal(),
+        )
+        return ConversationHandler.END
+    
+    else:
+        await update.message.reply_text(
+            "No entendí tu respuesta. Puedes:\n"
+            "- Escribir **1**, **2** o **3** para elegir una metodología.\n"
+            "- Escribir **Sí** para aceptar mi recomendación.\n"
+            "- Escribir **No** para ver las otras opciones."
+        )
+        return EXPLICAR_METODOLOGIA
 
 
 async def ver_plan_de_nuevo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -853,7 +1034,7 @@ async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
-# === INICIO DE LA APLICACIÓN CON WEBHOOKS (para Render) ===
+# === CONFIGURACIÓN DE LA APLICACIÓN ===
 # ============================================================
 
 iniciar_db()
@@ -883,6 +1064,9 @@ conversacion = ConversationHandler(
         DIAS_PREFERIDOS: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_dias_preferidos)],
         RESTRICCIONES: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_restricciones)],
         PREFERENCIAS: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_preferencias)],
+        # ===== NUEVOS ESTADOS =====
+        METODOLOGIA: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_metodologia)],
+        EXPLICAR_METODOLOGIA: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_explicacion_metodologia)],
     },
     fallbacks=[CommandHandler("cancel", cancelar)],
 )
@@ -947,7 +1131,7 @@ PORT = int(os.environ.get('PORT', 10000))
 # Una vez creado el Web Service, Render te dará una URL como:
 # https://telegram-bot-coach.onrender.com
 # Cópiala y pégala aquí abajo.
-RENDER_URL = "https://TU-SERVICIO.onrender.com"  # <--- CAMBIA ESTO
+RENDER_URL = "https://telegram-bot-coach.onrender.com"  # <--- CAMBIA ESTO
 
 print(f"🚀 Bot iniciado con WEBHOOKS. Escuchando en el puerto {PORT}")
 print(f"📡 Webhook URL configurada: {RENDER_URL}/{TOKEN}")
