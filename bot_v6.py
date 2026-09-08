@@ -631,18 +631,11 @@ async def recibir_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    
-
-texto = update.message.text.strip().lower()
+    texto = update.message.text.strip().lower()
     telegram_id = update.effective_user.id
 
-    # Si viene de la recomendación (Sí/No). Antes esto usaba "in", que es
-    # un substring match: cualquier palabra que contuviera "si" en
-    # cualquier parte (ej. "así prefiero seguir", "decisión") activaba
-    # por error esta rama. Ahora se compara la respuesta completa.
+    # Si viene de la recomendación (Sí/No)
     if texto in ("sí", "si", "sí.", "si.", "sí!", "si!"):
-
-
         recomendacion = context.user_data.get("metodologia_recomendada", {})
         metodologia = recomendacion.get("metodologia", "polarizada")
         nombre = recomendacion.get("nombre", "Polarizada (80/20)")
