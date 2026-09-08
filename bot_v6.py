@@ -852,6 +852,10 @@ async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+# ============================================================
+# === INICIO DE LA APLICACIÓN CON WEBHOOKS (para Render) ===
+# ============================================================
+
 iniciar_db()
 
 app = Application.builder().token(TOKEN).build()
@@ -935,5 +939,22 @@ else:
     )
     print(f"Recordatorio diario programado para las {HORA_RECORDATORIO.strftime('%H:%M')} (hora Bogotá).")
 
-print("Bot funcionando. Presiona Ctrl+C para detenerlo.")
-app.run_polling()
+# === NUEVO BLOQUE: WEBHOOKS PARA RENDER ===
+# El puerto lo proporciona Render en la variable de entorno PORT (default 10000)
+PORT = int(os.environ.get('PORT', 10000))
+
+# --- IMPORTANTE: CAMBIA ESTA URL POR LA DE TU SERVIDOR EN RENDER ---
+# Una vez creado el Web Service, Render te dará una URL como:
+# https://telegram-bot-coach.onrender.com
+# Cópiala y pégala aquí abajo.
+RENDER_URL = "https://TU-SERVICIO.onrender.com"  # <--- CAMBIA ESTO
+
+print(f"🚀 Bot iniciado con WEBHOOKS. Escuchando en el puerto {PORT}")
+print(f"📡 Webhook URL configurada: {RENDER_URL}/{TOKEN}")
+
+app.run_webhook(
+    listen='0.0.0.0',          # Escucha en todas las interfaces
+    port=PORT,                 # Puerto que Render asigna (10000 por defecto)
+    url_path=TOKEN,            # Ruta segura: https://.../TOKEN
+    webhook_url=f'{RENDER_URL}/{TOKEN}'  # URL completa que Telegram llamará
+)
