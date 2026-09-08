@@ -947,7 +947,7 @@ PORT = int(os.environ.get('PORT', 10000))
 # Una vez creado el Web Service, Render te dará una URL como:
 # https://telegram-bot-coach.onrender.com
 # Cópiala y pégala aquí abajo.
-RENDER_URL = "https://TU-SERVICIO.onrender.com"  # <--- CAMBIA ESTO
+RENDER_URL = "https://telegram-bot-coach.onrender.com"  # <--- CAMBIA ESTO
 
 print(f"🚀 Bot iniciado con WEBHOOKS. Escuchando en el puerto {PORT}")
 print(f"📡 Webhook URL configurada: {RENDER_URL}/{TOKEN}")
