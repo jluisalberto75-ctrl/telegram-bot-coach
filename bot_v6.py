@@ -291,7 +291,7 @@ def actualizar_marca(telegram_id, columna, tiempo):
     DIAS, MINUTOS, DIAS_PREFERIDOS,
     RESTRICCIONES, PREFERENCIAS,
     METODOLOGIA, EXPLICAR_METODOLOGIA
-) = range(17, 19)
+) = range(19)
 
 (REPORTAR_SENSACION,) = range(200, 201)
 
