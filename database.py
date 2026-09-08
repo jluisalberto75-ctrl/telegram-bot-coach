@@ -25,14 +25,24 @@ def _asegurar_columnas_entrenamientos(cursor):
 def _asegurar_columnas_usuarios(cursor):
     """
     Migración no destructiva, igual que la de entrenamientos: si
-    'usuarios.db' ya existía sin la columna 'plan_texto', la agrega sin
-    tocar los datos guardados.
+    'usuarios.db' ya existía sin las columnas 'plan_texto' o
+    'metodologia', las agrega sin tocar los datos guardados.
+
+    OJO: 'metodologia' antes solo se agregaba corriendo update_db.py a
+    mano por separado. Como iniciar_db() nunca llamaba a ese script, en
+    cualquier base de datos creada solo con database.py la columna no
+    existía, y el UPDATE usuarios SET metodologia = ... en bot_v6.py
+    fallaba con "no such column: metodologia". Ahora queda migrada acá
+    también, junto con las demás columnas, cada vez que arranca el bot.
     """
     cursor.execute("PRAGMA table_info(usuarios)")
     columnas_existentes = {fila[1] for fila in cursor.fetchall()}
 
     if "plan_texto" not in columnas_existentes:
         cursor.execute("ALTER TABLE usuarios ADD COLUMN plan_texto TEXT")
+
+    if "metodologia" not in columnas_existentes:
+        cursor.execute("ALTER TABLE usuarios ADD COLUMN metodologia TEXT")
 
 
 def iniciar_db():
@@ -72,7 +82,8 @@ def iniciar_db():
             -- meta
             fecha_registro TEXT,
             fecha_actualizacion TEXT,
-            plan_texto TEXT
+            plan_texto TEXT,
+            metodologia TEXT
         )
         """
     )
