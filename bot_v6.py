@@ -603,7 +603,7 @@ async def recibir_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Recomendar metodología
         nivel = perfil.get("nivel", "Principiante")
         objetivo = perfil.get("objetivo_principal", "Mantenerme en forma")
-        dias = perfil.get("dias_entrenamiento", "3 días")
+        dias = perfil.get("dias_entrenamiento") or "3 días"
         dias_num = 3
         if "2" in dias: dias_num = 2
         elif "3" in dias: dias_num = 3
@@ -631,11 +631,18 @@ async def recibir_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    texto = update.message.text.lower()
-    telegram_id = update.effective_user.id
     
-    # Si viene de la recomendación (Sí/No)
-    if "sí" in texto or "si" in texto:
+
+texto = update.message.text.strip().lower()
+    telegram_id = update.effective_user.id
+
+    # Si viene de la recomendación (Sí/No). Antes esto usaba "in", que es
+    # un substring match: cualquier palabra que contuviera "si" en
+    # cualquier parte (ej. "así prefiero seguir", "decisión") activaba
+    # por error esta rama. Ahora se compara la respuesta completa.
+    if texto in ("sí", "si", "sí.", "si.", "sí!", "si!"):
+
+
         recomendacion = context.user_data.get("metodologia_recomendada", {})
         metodologia = recomendacion.get("metodologia", "polarizada")
         nombre = recomendacion.get("nombre", "Polarizada (80/20)")
@@ -681,7 +688,7 @@ async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.
         )
         return ConversationHandler.END
     
-    elif "no" in texto:
+    elif texto in ("no", "no.", "no!"):
         # Ofrecer las otras opciones
         mensaje = (
             "Entendido. Estas son las tres metodologías disponibles:\n\n"

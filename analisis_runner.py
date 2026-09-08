@@ -90,8 +90,8 @@ def recomendar_metodologia(nivel, objetivo, dias_entrenamiento, vdot):
         recomendacion["nombre"] = "Entrenamiento Polarizado (80/20)"
         recomendacion["razon"] = "te ayudará a construir una base sólida de resistencia y llegar fuerte a la distancia"
         recomendacion["explicacion"] = (
-            "Con este método, el **80% de tu entrenamiento** será a ritmo suave (zona fácil, conversacional) "
-            "y solo el **20%** a ritmo intenso (series, intervalos). Es la metodología usada por la mayoría "
+            "Con este método, el 80% de tu entrenamiento será a ritmo suave (zona fácil, conversacional) "
+            "y solo el 20% a ritmo intenso (series, intervalos). Es la metodología usada por la mayoría "
             "de atletas de élite para largas distancias."
         )
     
@@ -140,9 +140,13 @@ def obtener_analisis_completo(telegram_id, contexto_base):
     analisis["ritmos_entrenamiento"] = ritmos
     
     # Recomendar metodología
+    # OJO: estos nombres de columna son los reales de la tabla "usuarios"
+    # (antes decía "dias" y "objetivo", que no existen, así que la
+    # recomendación siempre caía en los valores por defecto sin importar
+    # lo que el usuario hubiera puesto en la encuesta).
     nivel = contexto_base.get("nivel", "Principiante")
-    objetivo = contexto_base.get("objetivo", "Mantenerme en forma")
-    dias = contexto_base.get("dias", "3 días")
+    objetivo = contexto_base.get("objetivo_principal", "Mantenerme en forma")
+    dias = contexto_base.get("dias_entrenamiento", "3 días")
     
     # Convertir días a número
     dias_num = 3  # default
