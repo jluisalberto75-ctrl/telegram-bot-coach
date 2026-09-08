@@ -1,0 +1,1 @@
+web: python bot_v6.py
