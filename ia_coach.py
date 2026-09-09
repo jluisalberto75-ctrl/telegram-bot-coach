@@ -42,7 +42,11 @@ def _bloque_contexto(contexto_json):
     objetivo = contexto_json.get("objetivo_principal", "No especificado")
     vdot = contexto_json.get("vdot", "No calculado")
     metodologia = contexto_json.get("metodologia_nombre", "Polarizada (80/20)")
-    ritmos = contexto_json.get("ritmos_entrenamiento") or {}
+    # metodologia_vdot viene de vdot.py (fórmula real de Daniels-Gilbert,
+    # calculada una sola vez en context_builder.py). Es None si el
+    # corredor todavía no tiene ninguna marca registrada.
+    metodologia_vdot = contexto_json.get("metodologia_vdot")
+    ritmos = (metodologia_vdot or {}).get("ritmos_min_km") or {}
 
     restricciones = _resumen_notas(contexto_json.get("restricciones"), "Ninguna reportada.")
     preferencias = _resumen_notas(contexto_json.get("preferencias"), "Ninguna reportada.")
@@ -52,11 +56,14 @@ def _bloque_contexto(contexto_json):
 
     ritmo_texto = ""
     if ritmos:
+        marca_usada = metodologia_vdot.get("marca_usada_para_calcular", "tu marca más reciente")
         ritmo_texto = f"""
-Ritmos de entrenamiento sugeridos (basados en tu VDOT):
-- Ritmo fácil: {ritmos.get('facil', 'N/A')} min/km
-- Ritmo de umbral (tempo): {ritmos.get('tempo', 'N/A')} min/km
-- Ritmo para intervalos: {ritmos.get('intervalos', 'N/A')} min/km
+Ritmos de entrenamiento sugeridos (VDOT {vdot}, calculado con tu marca de {marca_usada}):
+- Fácil (E), para el grueso del volumen: {ritmos.get('facil_E', 'N/A')} min/km
+- Maratón (M), fondo/tempo largo: {ritmos.get('maraton_M', 'N/A')} min/km
+- Umbral (T), tempo/crucero: {ritmos.get('umbral_T', 'N/A')} min/km
+- Intervalos (I), series cortas-medias: {ritmos.get('intervalos_I', 'N/A')} min/km
+- Repetición (R), series cortas con recuperación completa: {ritmos.get('repeticion_R', 'N/A')} min/km
 """
 
     return {
@@ -122,7 +129,7 @@ Tu especialidad es la metodología {c['metodologia']}.
    dale prioridad sobre el historial pasado.
 6. Usa terminología profesional (VDOT, umbral, volumen, intensidad, zona).
 7. Sé específico: no digas "haz series", di "haz 6 series de 800m a
-   {c['ritmos'].get('intervalos', 'tu ritmo de intervalos')} min/km".
+   {c['ritmos'].get('intervalos_I', 'tu ritmo de intervalos')} min/km".
 8. No des diagnósticos médicos; si algo suena a lesión seria, sugiere ver
    a un profesional de salud una sola vez y sigue ayudando con el plan.
 9. Respuestas cortas (2-3 párrafos), directas y sin relleno.
@@ -178,8 +185,8 @@ Eres un entrenador de running profesional. Genera un plan de entrenamiento perso
 - Objetivo: {c['objetivo']}
 - VDOT: {c['vdot']}
 - Metodología: {c['metodologia']}
-- Ritmo fácil: {c['ritmos'].get('facil', 'N/A')} min/km
-- Ritmo de umbral: {c['ritmos'].get('tempo', 'N/A')} min/km
+- Ritmo fácil: {c['ritmos'].get('facil_E', 'N/A')} min/km
+- Ritmo de umbral: {c['ritmos'].get('umbral_T', 'N/A')} min/km
 
 **RESTRICCIONES ACTIVAS:** {c['restricciones']}
 **PREFERENCIAS:** {c['preferencias']}

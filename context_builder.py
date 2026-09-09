@@ -1,15 +1,17 @@
-from database import DB_PATH
-from analisis_runner import obtener_analisis_completo
 import sqlite3
+
+from database import DB_PATH
+from analisis_runner import determinar_metodologia
+from vdot import obtener_metodologia_vdot
 
 
 def obtener_contexto_corredor(telegram_id):
     """
-    Obtiene el contexto completo del corredor: perfil, análisis profesional
-    (VDOT, ritmos, metodología sugerida) e historial reciente (entrenamientos,
-    restricciones, preferencias y cómo se siente hoy). Antes esto último no
-    se incluía, así que el coach de IA nunca veía nada de lo que el usuario
-    reportaba después de la encuesta inicial.
+    Obtiene el contexto completo del corredor: perfil, VDOT y ritmos de
+    entrenamiento reales (calculados con la fórmula de Daniels-Gilbert
+    en vdot.py, con las 5 zonas E/M/T/I/R que espera agente_prompt.py),
+    la metodología elegida o recomendada, e historial reciente
+    (entrenamientos, restricciones, preferencias y cómo se siente hoy).
     """
     conexion = sqlite3.connect(DB_PATH)
     conexion.row_factory = sqlite3.Row
@@ -30,9 +32,11 @@ def obtener_contexto_corredor(telegram_id):
     )
     entrenamientos_recientes = [dict(f) for f in cursor.fetchall()]
 
-    # Restricciones activas (lesiones, limitaciones)
+    # Restricciones activas (lesiones, limitaciones). Se incluye el id
+    # para que el flujo de "actualizar restricciones y preferencias" en
+    # bot_v6.py pueda desactivar una puntual sin tocar las demás.
     cursor.execute(
-        "SELECT texto, fecha FROM notas_agente "
+        "SELECT id, texto, fecha FROM notas_agente "
         "WHERE telegram_id = ? AND tipo = 'restriccion' AND activa = 1 "
         "ORDER BY fecha DESC",
         (telegram_id,),
@@ -41,7 +45,7 @@ def obtener_contexto_corredor(telegram_id):
 
     # Preferencias activas
     cursor.execute(
-        "SELECT texto, fecha FROM notas_agente "
+        "SELECT id, texto, fecha FROM notas_agente "
         "WHERE telegram_id = ? AND tipo = 'preferencia' AND activa = 1 "
         "ORDER BY fecha DESC",
         (telegram_id,),
@@ -63,13 +67,27 @@ def obtener_contexto_corredor(telegram_id):
     # Eliminar campos None del perfil base para evitar errores en la IA
     contexto_limpio = {k: v for k, v in contexto.items() if v is not None}
 
-    # Añadir análisis profesional (VDOT, ritmos, metodología sugerida)
-    analisis_completo = obtener_analisis_completo(telegram_id, contexto_limpio)
+    # VDOT y ritmos reales (Daniels-Gilbert), calculados una sola vez acá
+    # con la fórmula completa de vdot.py.
+    metodologia_vdot = obtener_metodologia_vdot(
+        contexto_limpio.get("marca_5k"),
+        contexto_limpio.get("marca_10k"),
+        contexto_limpio.get("marca_media_maraton"),
+    )
+    vdot_valor = metodologia_vdot["vdot"] if metodologia_vdot else None
 
-    # Añadir historial y memoria del agente
-    analisis_completo["entrenamientos_recientes"] = entrenamientos_recientes
-    analisis_completo["restricciones"] = restricciones
-    analisis_completo["preferencias"] = preferencias
-    analisis_completo["sensacion_reportada"] = sensacion_reportada
+    recomendacion = determinar_metodologia(contexto_limpio, vdot_valor)
 
-    return analisis_completo
+    resultado = contexto_limpio.copy()
+    resultado["vdot"] = vdot_valor
+    resultado["metodologia_vdot"] = metodologia_vdot
+    resultado["metodologia"] = recomendacion["metodologia"]
+    resultado["metodologia_nombre"] = recomendacion["nombre"]
+    resultado["metodologia_razon"] = recomendacion["razon"]
+    resultado["metodologia_explicacion"] = recomendacion["explicacion"]
+    resultado["entrenamientos_recientes"] = entrenamientos_recientes
+    resultado["restricciones"] = restricciones
+    resultado["preferencias"] = preferencias
+    resultado["sensacion_reportada"] = sensacion_reportada
+
+    return resultado

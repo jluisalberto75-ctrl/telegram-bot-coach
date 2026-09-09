@@ -20,8 +20,7 @@ from telegram.ext import (
 from database import DB_PATH, iniciar_db
 from context_builder import obtener_contexto_corredor
 from ia_coach import pedir_respuesta_coach, pedir_plan_inicial
-from analisis_runner import recomendar_metodologia
-from vdot import obtener_metodologia_vdot
+from analisis_runner import recomendar_metodologia, calcular_vdot
 
 logger = logging.getLogger(__name__)
 
@@ -248,42 +247,6 @@ def marcar_sensaciones_anteriores_inactivas(telegram_id):
     conexion.close()
 
 
-def obtener_notas_activas(telegram_id, tipo):
-    """
-    Devuelve las notas activas de un tipo dado ('restriccion' o
-    'preferencia') como lista de dicts {id, texto}, para poder
-    mostrárselas al corredor y dejarlo elegir cuál desactivar.
-    """
-    conexion = sqlite3.connect(DB_PATH)
-    conexion.row_factory = sqlite3.Row
-    cursor = conexion.cursor()
-    cursor.execute(
-        "SELECT id, texto FROM notas_agente "
-        "WHERE telegram_id = ? AND tipo = ? AND activa = 1 "
-        "ORDER BY fecha DESC",
-        (telegram_id, tipo),
-    )
-    filas = cursor.fetchall()
-    conexion.close()
-    return [dict(f) for f in filas]
-
-
-def desactivar_nota(nota_id, telegram_id):
-    """
-    Marca una nota puntual (restricción o preferencia) como ya no
-    vigente. Se filtra también por telegram_id para que un corredor no
-    pueda desactivar, ni por accidente ni a propósito, una nota de otro.
-    """
-    conexion = sqlite3.connect(DB_PATH)
-    cursor = conexion.cursor()
-    cursor.execute(
-        "UPDATE notas_agente SET activa = 0 WHERE id = ? AND telegram_id = ?",
-        (nota_id, telegram_id),
-    )
-    conexion.commit()
-    conexion.close()
-
-
 def guardar_entrenamiento(telegram_id, km, duracion_min, sensacion, notas, tipo="normal"):
     ritmo_min_km = (duracion_min / km) if km else None
     conexion = sqlite3.connect(DB_PATH)
@@ -325,35 +288,6 @@ def actualizar_marca(telegram_id, columna, tiempo):
     conexion.close()
 
 
-# Campos que se pueden actualizar de a uno sin rehacer toda la encuesta
-# (botón "✏️ Actualizar un dato"). Igual que con COLUMNAS_MARCA, al venir
-# de este diccionario fijo es seguro interpolar el nombre de columna —
-# nunca se arma a partir de texto libre del usuario. Reutiliza
-# actualizar_marca(telegram_id, columna, valor) porque hace exactamente
-# lo mismo que necesitamos acá (UPDATE genérico de una sola columna).
-CAMPOS_EDITABLES = {
-    "Marca 5K": ("marca_5k", "¿Cuál es tu nueva marca en 5K? (ej: '25:30')"),
-    "Marca 10K": ("marca_10k", "¿Cuál es tu nueva marca en 10K? (ej: '52:00')"),
-    "Marca media maratón": (
-        "marca_media_maraton",
-        "¿Cuál es tu nueva marca en media maratón? (ej: '1:55:00')",
-    ),
-    "Kilometraje semanal": (
-        "kilometraje_semanal_actual",
-        "¿Cuántos km corres actualmente por semana, en promedio? (solo el número)",
-    ),
-    "Ritmo fácil": (
-        "ritmo_facil",
-        "¿Cuál es tu ritmo cómodo/fácil actual por kilómetro? (ej: '6:30 min/km')",
-    ),
-    "Minutos por sesión": (
-        "minutos_por_sesion",
-        "¿Cuántos minutos tienes disponibles, en promedio, por sesión?",
-    ),
-    "Días de entrenamiento": ("dias_entrenamiento", None),  # usa teclado especial
-}
-
-
 # ---------- Estados de la encuesta ----------
 (
     NOMBRE, EDAD, NIVEL, KILOMETRAJE, RITMO,
@@ -366,52 +300,18 @@ CAMPOS_EDITABLES = {
 
 (REPORTAR_SENSACION,) = range(200, 201)
 
-(NOTA_TIPO, NOTA_TEXTO_RESTRICCION, NOTA_TEXTO_PREFERENCIA, NOTA_DESACTIVAR) = range(300, 304)
-
-(DATO_CAMPO, DATO_VALOR) = range(400, 402)
-
 # ---------- Menú principal persistente ----------
-BTN_COACH = "🎯 Pregúntale al coach"
-BTN_DESEMPENO = "📈 Analiza mi desempeño"
 BTN_REGISTRAR = "📊 Registrar entrenamiento"
 BTN_VER_PLAN = "📋 Ver mi plan"
-BTN_DATOS_PERSONALES = "👤 Actualizar mis datos personales"
 BTN_SENSACION = "🤕 Reportar cómo me siento"
-
-# Submenú de "Actualizar mis datos personales" — agrupa las 3 formas de
-# actualizar el perfil (una sola marca/campo, restricciones y
-# preferencias, o la encuesta completa) sin saturar el menú principal
-# con más de 6 botones.
-BTN_ACTUALIZAR = "⚙️ Rehacer toda la encuesta"
-BTN_UN_DATO = "✏️ Actualizar un dato"
-BTN_NOTAS = "🩹 Restricciones y preferencias"
-BTN_VOLVER = "⬅️ Volver al menú principal"
+BTN_ACTUALIZAR = "⚙️ Actualizar mis datos"
 
 
 def teclado_principal():
-    """
-    Los botones principales, siempre visibles, que estructuran toda la
-    conversación con el bot: hacerle una pregunta abierta al coach,
-    pedir un análisis de desempeño basado en el historial, registrar un
-    entrenamiento, ver el plan vigente, actualizar datos personales, o
-    reportar cómo se siente hoy.
-    """
     return ReplyKeyboardMarkup(
-        [
-            [BTN_COACH, BTN_DESEMPENO],
-            [BTN_REGISTRAR, BTN_VER_PLAN],
-            [BTN_DATOS_PERSONALES, BTN_SENSACION],
-        ],
+        [[BTN_REGISTRAR, BTN_VER_PLAN], [BTN_SENSACION, BTN_ACTUALIZAR]],
         resize_keyboard=True,
         one_time_keyboard=False,
-    )
-
-
-def teclado_datos_personales():
-    return ReplyKeyboardMarkup(
-        [[BTN_UN_DATO], [BTN_NOTAS], [BTN_ACTUALIZAR], [BTN_VOLVER]],
-        resize_keyboard=True,
-        one_time_keyboard=True,
     )
 
 PLANES = {
@@ -673,9 +573,9 @@ async def recibir_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE
     opcion = update.message.text
     
     if opcion == "🔍 Explícame las opciones":
-        # Explicar las 2 metodologías
+        # Explicar las 3 metodologías
         mensaje = (
-            "📚 *Dos metodologías de entrenamiento profesional:*\n\n"
+            "📚 *Tres metodologías de entrenamiento profesional:*\n\n"
             "🏃 *1. Entrenamiento Polarizado (80/20)*\n"
             "• El 80% de tu entrenamiento es a ritmo suave (fácil, conversacional).\n"
             "• El 20% es a ritmo intenso (series, intervalos).\n"
@@ -685,8 +585,12 @@ async def recibir_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE
             "• Entrenas a los ritmos exactos de tu competencia objetivo.\n"
             "• ✅ Ideal para: afinar tu ritmo específico para 5K, 10K, etc.\n"
             "• 🎯 Ventaja: alta especificidad.\n\n"
+            "❤️ *3. Entrenamiento por Frecuencia Cardíaca (HRV)*\n"
+            "• La intensidad se ajusta según tu frecuencia cardíaca diaria.\n"
+            "• ✅ Ideal para: máxima personalización y adaptación.\n"
+            "• 📱 Requiere: reloj deportivo con medición de FC.\n\n"
             "Ahora, ¿cuál te gustaría probar?\n"
-            "Escribe el número: *1* o *2*."
+            "Escribe el número: *1*, *2* o *3*."
         )
         await update.message.reply_text(mensaje, reply_markup=ReplyKeyboardRemove(), parse_mode=ParseMode.MARKDOWN)
         return EXPLICAR_METODOLOGIA
@@ -699,17 +603,20 @@ async def recibir_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("No encontré tu perfil. Escribe /start para crear uno.")
             return ConversationHandler.END
         
-        # Calcular VDOT real (Daniels-Gilbert), igual que en context_builder.py
-        metodologia_vdot = obtener_metodologia_vdot(
-            perfil.get("marca_5k"), perfil.get("marca_10k"), perfil.get("marca_media_maraton")
-        )
-        vdot = metodologia_vdot["vdot"] if metodologia_vdot else None
+        # Calcular VDOT
+        vdot = calcular_vdot(dict(perfil))
         
         # Recomendar metodología
         nivel = perfil.get("nivel", "Principiante")
         objetivo = perfil.get("objetivo_principal", "Mantenerme en forma")
+        dias = perfil.get("dias_entrenamiento") or "3 días"
+        dias_num = 3
+        if "2" in dias: dias_num = 2
+        elif "3" in dias: dias_num = 3
+        elif "4" in dias: dias_num = 4
+        elif "5" in dias or "más" in dias: dias_num = 5
         
-        recomendacion = recomendar_metodologia(nivel, objetivo, vdot)
+        recomendacion = recomendar_metodologia(nivel, objetivo, dias_num, vdot)
         
         mensaje = (
             f"🎯 *Mi recomendación para ti:*\n\n"
@@ -788,23 +695,26 @@ async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.
     elif texto in ("no", "no.", "no!"):
         # Ofrecer las otras opciones
         mensaje = (
-            "Entendido. Estas son las dos metodologías disponibles:\n\n"
+            "Entendido. Estas son las tres metodologías disponibles:\n\n"
             "1️⃣ *Polarizada (80/20)* - Para mejora constante y segura.\n"
-            "2️⃣ *Ritmo de Carrera* - Para afinar tu ritmo específico.\n\n"
-            "¿Cuál te gustaría probar? Escribe *1* o *2*."
+            "2️⃣ *Ritmo de Carrera* - Para afinar tu ritmo específico.\n"
+            "3️⃣ *Frecuencia Cardíaca* - Para máxima personalización.\n\n"
+            "¿Cuál te gustaría probar? Escribe *1*, *2* o *3*."
         )
         await update.message.reply_text(mensaje, reply_markup=ReplyKeyboardRemove(), parse_mode=ParseMode.MARKDOWN)
         return EXPLICAR_METODOLOGIA
     
-    # Si viene de la explicación (elige 1 o 2)
-    elif texto in ["1", "2"]:
+    # Si viene de la explicación (elige 1, 2 o 3)
+    elif texto in ["1", "2", "3"]:
         metodologias = {
             "1": "polarizada",
             "2": "race_pace",
+            "3": "hrv"
         }
         nombres = {
             "1": "Polarizada (80/20)",
             "2": "Ritmo de Carrera",
+            "3": "Frecuencia Cardíaca"
         }
         metodologia_elegida = metodologias.get(texto, "polarizada")
         nombre_elegido = nombres.get(texto, "Polarizada (80/20)")
@@ -858,7 +768,7 @@ async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.
     else:
         await update.message.reply_text(
             "No entendí tu respuesta. Puedes:\n"
-            "- Escribir *1* o *2* para elegir una metodología.\n"
+            "- Escribir *1*, *2* o *3* para elegir una metodología.\n"
             "- Escribir *Sí* para aceptar mi recomendación.\n"
             "- Escribir *No* para ver las otras opciones.",
             parse_mode=ParseMode.MARKDOWN,
@@ -877,69 +787,6 @@ async def ver_plan_de_nuevo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await enviar_mensaje_largo(update, perfil["plan_texto"], reply_markup=teclado_principal())
     else:
         await enviar_mensaje_largo(update, PLANES[perfil["nivel"]], reply_markup=teclado_principal())
-
-
-async def mostrar_menu_datos_personales(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    perfil = obtener_usuario(update.effective_user.id)
-    if not perfil or not perfil.get("nombre"):
-        await update.message.reply_text("Todavía no tengo tu perfil. Escribe /start primero.")
-        return
-
-    await update.message.reply_text(
-        "¿Qué quieres actualizar?", reply_markup=teclado_datos_personales()
-    )
-
-
-async def volver_menu_principal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Menú principal:", reply_markup=teclado_principal())
-
-
-async def invitar_pregunta_coach(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Este botón no abre un estado de conversación aparte: cualquier texto
-    libre que no encaje con los demás botones ya se trata como pregunta
-    para el coach (ver manejar_pregunta_coach más abajo). El botón solo
-    hace explícito y visible que esa opción existe, para que el corredor
-    no tenga que adivinar que puede simplemente escribir su duda.
-    """
-    perfil = obtener_usuario(update.effective_user.id)
-    if not perfil or not perfil.get("nombre"):
-        await update.message.reply_text("Todavía no tengo tu perfil. Escribe /start primero.")
-        return
-
-    await update.message.reply_text(
-        "Cuéntame, ¿qué duda tienes sobre tu entrenamiento?",
-        reply_markup=teclado_principal(),
-    )
-
-
-async def analizar_desempeno(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    telegram_id = update.effective_user.id
-    contexto_json = obtener_contexto_corredor(telegram_id)
-
-    if contexto_json is None:
-        await update.message.reply_text("Todavía no tengo tu perfil. Escribe /start primero.")
-        return
-
-    if not contexto_json.get("entrenamientos_recientes"):
-        await update.message.reply_text(
-            "Todavía no tienes entrenamientos registrados. Registra algunos con "
-            f"'{BTN_REGISTRAR}' y en un par de sesiones ya puedo darte un análisis "
-            "real de tu progreso.",
-            reply_markup=teclado_principal(),
-        )
-        return
-
-    await update.message.chat.send_action(action="typing")
-    respuesta = pedir_respuesta_coach(
-        contexto_json,
-        "El corredor pidió explícitamente un análisis de su desempeño reciente. "
-        "Usa historial.entrenamientos_recientes: compara ritmo, distancia, "
-        "duración y sensación entre sesiones, identifica tendencias (mejora, "
-        "estancamiento, señales de fatiga o sobreentrenamiento) y da una "
-        "conclusión clara con un ajuste sugerido si aplica.",
-    )
-    await enviar_mensaje_largo(update, respuesta, reply_markup=teclado_principal())
 
 
 async def iniciar_encuesta_forzada(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -979,192 +826,6 @@ async def recibir_sensacion_reportada(update: Update, context: ContextTypes.DEFA
         "hay nada preocupante, solo confírmaselo en una frase.",
     )
     await enviar_mensaje_largo(update, respuesta, reply_markup=teclado_principal())
-    return ConversationHandler.END
-
-
-# ---------- Gestionar restricciones y preferencias sin rehacer la encuesta ----------
-BTN_NOTA_NUEVA_RESTRICCION = "➕ Nueva restricción o lesión"
-BTN_NOTA_QUITAR_RESTRICCION = "✅ Ya no tengo una restricción"
-BTN_NOTA_NUEVA_PREFERENCIA = "➕ Nueva preferencia"
-
-
-async def iniciar_gestion_notas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    perfil = obtener_usuario(update.effective_user.id)
-    if not perfil or not perfil.get("nombre"):
-        await update.message.reply_text("Todavía no tengo tu perfil. Escribe /start primero.")
-        return ConversationHandler.END
-
-    teclado = ReplyKeyboardMarkup(
-        [
-            [BTN_NOTA_NUEVA_RESTRICCION],
-            [BTN_NOTA_QUITAR_RESTRICCION],
-            [BTN_NOTA_NUEVA_PREFERENCIA],
-        ],
-        one_time_keyboard=True, resize_keyboard=True,
-    )
-    await update.message.reply_text(
-        "¿Qué quieres actualizar?", reply_markup=teclado
-    )
-    return NOTA_TIPO
-
-
-async def recibir_tipo_nota(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    opcion = update.message.text
-    telegram_id = update.effective_user.id
-
-    if opcion == BTN_NOTA_NUEVA_RESTRICCION:
-        await update.message.reply_text(
-            "Cuéntame la restricción o lesión (ej: 'dolor de rodilla derecha').",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        return NOTA_TEXTO_RESTRICCION
-
-    elif opcion == BTN_NOTA_NUEVA_PREFERENCIA:
-        await update.message.reply_text(
-            "Cuéntame tu preferencia (ej: 'prefiero entrenar en la mañana').",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        return NOTA_TEXTO_PREFERENCIA
-
-    elif opcion == BTN_NOTA_QUITAR_RESTRICCION:
-        restricciones = obtener_notas_activas(telegram_id, "restriccion")
-        if not restricciones:
-            await update.message.reply_text(
-                "No tienes ninguna restricción activa registrada ahora mismo.",
-                reply_markup=teclado_principal(),
-            )
-            return ConversationHandler.END
-
-        # Guardamos el mapeo texto-de-botón -> id para no depender de que
-        # el usuario escriba un número exacto (más fácil de tocar en el
-        # teclado del celular).
-        context.user_data["restricciones_activas"] = {
-            r["texto"]: r["id"] for r in restricciones
-        }
-        botones = [[r["texto"]] for r in restricciones]
-        teclado = ReplyKeyboardMarkup(botones, one_time_keyboard=True, resize_keyboard=True)
-        await update.message.reply_text(
-            "¿Cuál restricción ya no aplica?", reply_markup=teclado
-        )
-        return NOTA_DESACTIVAR
-
-    else:
-        await update.message.reply_text("Elige una opción con los botones.")
-        return NOTA_TIPO
-
-
-async def recibir_texto_restriccion(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    telegram_id = update.effective_user.id
-    guardar_nota(telegram_id, "restriccion", update.message.text)
-    await update.message.reply_text(
-        "Listo, la tengo en cuenta para tus próximas sesiones. 🩹",
-        reply_markup=teclado_principal(),
-    )
-    return ConversationHandler.END
-
-
-async def recibir_texto_preferencia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    telegram_id = update.effective_user.id
-    guardar_nota(telegram_id, "preferencia", update.message.text)
-    await update.message.reply_text(
-        "Listo, la guardé. 👍",
-        reply_markup=teclado_principal(),
-    )
-    return ConversationHandler.END
-
-
-async def recibir_desactivar_restriccion(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    telegram_id = update.effective_user.id
-    mapa = context.user_data.get("restricciones_activas", {})
-    nota_id = mapa.get(update.message.text)
-
-    if nota_id is None:
-        await update.message.reply_text("Elige una opción con los botones.")
-        return NOTA_DESACTIVAR
-
-    desactivar_nota(nota_id, telegram_id)
-    await update.message.reply_text(
-        "Perfecto, la quité de tus restricciones activas. 🎉",
-        reply_markup=teclado_principal(),
-    )
-    return ConversationHandler.END
-
-
-# ---------- Actualizar un solo dato del perfil ----------
-async def iniciar_actualizar_dato(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    perfil = obtener_usuario(update.effective_user.id)
-    if not perfil or not perfil.get("nombre"):
-        await update.message.reply_text("Todavía no tengo tu perfil. Escribe /start primero.")
-        return ConversationHandler.END
-
-    botones = [[nombre_campo] for nombre_campo in CAMPOS_EDITABLES]
-    teclado = ReplyKeyboardMarkup(botones, one_time_keyboard=True, resize_keyboard=True)
-    await update.message.reply_text(
-        "¿Qué dato quieres actualizar?", reply_markup=teclado
-    )
-    return DATO_CAMPO
-
-
-async def recibir_campo_dato(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    nombre_campo = update.message.text
-    if nombre_campo not in CAMPOS_EDITABLES:
-        await update.message.reply_text("Elige una opción con los botones.")
-        return DATO_CAMPO
-
-    columna, pregunta = CAMPOS_EDITABLES[nombre_campo]
-    context.user_data["columna_a_actualizar"] = columna
-    context.user_data["nombre_campo_a_actualizar"] = nombre_campo
-
-    if columna == "dias_entrenamiento":
-        teclado = ReplyKeyboardMarkup(
-            [["2 días", "3 días"], ["4 días", "5 o más días"]],
-            one_time_keyboard=True, resize_keyboard=True,
-        )
-        await update.message.reply_text(
-            "¿Cuántos días a la semana puedes entrenar ahora?", reply_markup=teclado
-        )
-    else:
-        await update.message.reply_text(pregunta, reply_markup=ReplyKeyboardRemove())
-    return DATO_VALOR
-
-
-async def recibir_valor_dato(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    telegram_id = update.effective_user.id
-    columna = context.user_data.get("columna_a_actualizar")
-    nombre_campo = context.user_data.get("nombre_campo_a_actualizar", "dato")
-    texto = update.message.text.strip()
-
-    if columna == "dias_entrenamiento":
-        opciones = ["2 días", "3 días", "4 días", "5 o más días"]
-        if texto not in opciones:
-            await update.message.reply_text("Elige una opción con los botones.")
-            return DATO_VALOR
-        valor = texto
-
-    elif columna == "kilometraje_semanal_actual":
-        try:
-            valor = float(texto.replace(",", "."))
-        except ValueError:
-            await update.message.reply_text("Escribe solo un número (ej: 25).")
-            return DATO_VALOR
-
-    elif columna == "minutos_por_sesion":
-        if not texto.isdigit():
-            await update.message.reply_text("Escribe solo un número de minutos (ej: 45).")
-            return DATO_VALOR
-        valor = int(texto)
-
-    else:
-        valor = texto
-
-    # actualizar_marca es un UPDATE genérico de una sola columna a pesar
-    # del nombre — lo reutilizamos acá para cualquier campo editable.
-    actualizar_marca(telegram_id, columna, valor)
-
-    await update.message.reply_text(
-        f"Listo, actualicé tu {nombre_campo.lower()}. ✅",
-        reply_markup=teclado_principal(),
-    )
     return ConversationHandler.END
 
 
@@ -1463,46 +1124,10 @@ reportar_sensacion = ConversationHandler(
     fallbacks=[CommandHandler("cancel", cancelar)],
 )
 
-gestion_notas = ConversationHandler(
-    entry_points=[
-        MessageHandler(filters.Regex(f"^{BTN_NOTAS}$"), iniciar_gestion_notas),
-    ],
-    states={
-        NOTA_TIPO: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_tipo_nota)],
-        NOTA_TEXTO_RESTRICCION: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_texto_restriccion)
-        ],
-        NOTA_TEXTO_PREFERENCIA: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_texto_preferencia)
-        ],
-        NOTA_DESACTIVAR: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_desactivar_restriccion)
-        ],
-    },
-    fallbacks=[CommandHandler("cancel", cancelar)],
-)
-
-actualizar_dato = ConversationHandler(
-    entry_points=[
-        MessageHandler(filters.Regex(f"^{BTN_UN_DATO}$"), iniciar_actualizar_dato),
-    ],
-    states={
-        DATO_CAMPO: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_campo_dato)],
-        DATO_VALOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_valor_dato)],
-    },
-    fallbacks=[CommandHandler("cancel", cancelar)],
-)
-
 app.add_handler(conversacion)
 app.add_handler(registro_entrenamiento)
 app.add_handler(reportar_sensacion)
-app.add_handler(gestion_notas)
-app.add_handler(actualizar_dato)
 app.add_handler(MessageHandler(filters.Regex(f"^{BTN_VER_PLAN}$"), ver_plan_de_nuevo))
-app.add_handler(MessageHandler(filters.Regex(f"^{BTN_DATOS_PERSONALES}$"), mostrar_menu_datos_personales))
-app.add_handler(MessageHandler(filters.Regex(f"^{BTN_VOLVER}$"), volver_menu_principal))
-app.add_handler(MessageHandler(filters.Regex(f"^{BTN_COACH}$"), invitar_pregunta_coach))
-app.add_handler(MessageHandler(filters.Regex(f"^{BTN_DESEMPENO}$"), analizar_desempeno))
 # Cualquier otro texto que no encaje arriba se trata como pregunta para el coach de IA
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_pregunta_coach))
 app.add_error_handler(manejar_error)
