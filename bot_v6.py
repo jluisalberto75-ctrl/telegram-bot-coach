@@ -126,11 +126,12 @@ def guardar_perfil_completo(telegram_id, datos):
 
 
 def guardar_plan_texto(telegram_id, texto):
+    ahora = datetime.now().isoformat()
     conexion = sqlite3.connect(DB_PATH)
     cursor = conexion.cursor()
     cursor.execute(
-        "UPDATE usuarios SET plan_texto = ? WHERE telegram_id = ?",
-        (texto, telegram_id),
+        "UPDATE usuarios SET plan_texto = ?, plan_generado_en = ? WHERE telegram_id = ?",
+        (texto, ahora, telegram_id),
     )
     conexion.commit()
     conexion.close()
@@ -218,6 +219,23 @@ async def recordatorio_diario(context: ContextTypes.DEFAULT_TYPE):
             print(f"[bot] No se pudo enviar recordatorio a {telegram_id}: {error}")
 
 
+def tocar_fecha_actualizacion(telegram_id):
+    """
+    Actualiza usuarios.fecha_actualizacion a 'ahora'. Se usa como marca
+    de "algo relevante del perfil cambió", para que ver_plan_de_nuevo
+    pueda comparar esta fecha contra plan_generado_en y decidir si el
+    plan guardado quedó desactualizado.
+    """
+    conexion = sqlite3.connect(DB_PATH)
+    cursor = conexion.cursor()
+    cursor.execute(
+        "UPDATE usuarios SET fecha_actualizacion = ? WHERE telegram_id = ?",
+        (datetime.now().isoformat(), telegram_id),
+    )
+    conexion.commit()
+    conexion.close()
+
+
 def guardar_nota(telegram_id, tipo, texto):
     if es_saltar(texto):
         return
@@ -229,6 +247,13 @@ def guardar_nota(telegram_id, tipo, texto):
     )
     conexion.commit()
     conexion.close()
+
+    # Una restricción o preferencia nueva sí debería hacer que el plan de
+    # varias semanas se revise. Un reporte de "cómo me siento hoy" es
+    # algo puntual del día que el coach ya tiene en cuenta en cada
+    # respuesta — no amerita regenerar el plan completo cada vez.
+    if tipo in ("restriccion", "preferencia"):
+        tocar_fecha_actualizacion(telegram_id)
 
 
 def marcar_sensaciones_anteriores_inactivas(telegram_id):
@@ -282,6 +307,7 @@ def desactivar_nota(nota_id, telegram_id):
     )
     conexion.commit()
     conexion.close()
+    tocar_fecha_actualizacion(telegram_id)
 
 
 def guardar_entrenamiento(telegram_id, km, duracion_min, sensacion, notas, tipo="normal"):
@@ -385,6 +411,7 @@ BTN_SENSACION = "🤕 Reportar cómo me siento"
 BTN_ACTUALIZAR = "⚙️ Rehacer toda la encuesta"
 BTN_UN_DATO = "✏️ Actualizar un dato"
 BTN_NOTAS = "🩹 Restricciones y preferencias"
+BTN_CAMBIAR_METODOLOGIA = "🔁 Cambiar metodología"
 BTN_VOLVER = "⬅️ Volver al menú principal"
 
 
@@ -409,7 +436,7 @@ def teclado_principal():
 
 def teclado_datos_personales():
     return ReplyKeyboardMarkup(
-        [[BTN_UN_DATO], [BTN_NOTAS], [BTN_ACTUALIZAR], [BTN_VOLVER]],
+        [[BTN_UN_DATO], [BTN_NOTAS], [BTN_CAMBIAR_METODOLOGIA], [BTN_ACTUALIZAR], [BTN_VOLVER]],
         resize_keyboard=True,
         one_time_keyboard=True,
     )
@@ -669,6 +696,41 @@ async def recibir_preferencias(update: Update, context: ContextTypes.DEFAULT_TYP
     return METODOLOGIA
 
 
+async def iniciar_cambio_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Punto de entrada para cambiar de metodología en cualquier momento
+    (botón "🔁 Cambiar metodología" en el submenú de datos personales),
+    sin pasar por toda la encuesta. Reutiliza los mismos estados
+    METODOLOGIA/EXPLICAR_METODOLOGIA de la encuesta inicial: la elección
+    se guarda y el plan se regenera exactamente igual en ambos casos.
+    """
+    perfil = obtener_usuario(update.effective_user.id)
+    if not perfil or not perfil.get("nombre"):
+        await update.message.reply_text("Todavía no tengo tu perfil. Escribe /start primero.")
+        return ConversationHandler.END
+
+    teclado = ReplyKeyboardMarkup(
+        [["🔍 Explícame las opciones", "🎯 Recomiéndame una"]],
+        one_time_keyboard=True,
+        resize_keyboard=True,
+    )
+    metodologia_actual = perfil.get("metodologia")
+    nombre_actual = {
+        "polarizada": "Polarizada (80/20)",
+        "race_pace": "Ritmo de Carrera (Race Pace)",
+    }.get(metodologia_actual, "sin definir")
+    await update.message.reply_text(
+        f"Tu metodología actual es *{nombre_actual}*. Vamos a elegir una nueva.\n\n"
+        "Tienes dos opciones:\n"
+        "1️⃣ *Explícame las opciones* → Te explico las metodologías más usadas por corredores profesionales.\n"
+        "2️⃣ *Recomiéndame una* → Basado en tu perfil, te sugiero la mejor para ti.\n\n"
+        "¿Qué prefieres?",
+        reply_markup=teclado,
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    return METODOLOGIA
+
+
 async def recibir_metodologia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     opcion = update.message.text
     
@@ -739,12 +801,14 @@ async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.
         metodologia = recomendacion.get("metodologia", "polarizada")
         nombre = recomendacion.get("nombre", "Polarizada (80/20)")
         
-        # Guardar la metodología en el perfil
+        # Guardar la metodología en el perfil. También se marca
+        # fecha_actualizacion para que ver_plan_de_nuevo detecte el
+        # cambio y regenere el plan con la nueva metodología.
         conexion = sqlite3.connect(DB_PATH)
         cursor = conexion.cursor()
         cursor.execute(
-            "UPDATE usuarios SET metodologia = ? WHERE telegram_id = ?",
-            (metodologia, telegram_id)
+            "UPDATE usuarios SET metodologia = ?, fecha_actualizacion = ? WHERE telegram_id = ?",
+            (metodologia, datetime.now().isoformat(), telegram_id)
         )
         conexion.commit()
         conexion.close()
@@ -809,12 +873,13 @@ async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.
         metodologia_elegida = metodologias.get(texto, "polarizada")
         nombre_elegido = nombres.get(texto, "Polarizada (80/20)")
         
-        # Guardar en base de datos
+        # Guardar en base de datos. También se marca fecha_actualizacion
+        # para que ver_plan_de_nuevo detecte el cambio y regenere el plan.
         conexion = sqlite3.connect(DB_PATH)
         cursor = conexion.cursor()
         cursor.execute(
-            "UPDATE usuarios SET metodologia = ? WHERE telegram_id = ?",
-            (metodologia_elegida, telegram_id)
+            "UPDATE usuarios SET metodologia = ?, fecha_actualizacion = ? WHERE telegram_id = ?",
+            (metodologia_elegida, datetime.now().isoformat(), telegram_id)
         )
         conexion.commit()
         conexion.close()
@@ -867,16 +932,64 @@ async def recibir_explicacion_metodologia(update: Update, context: ContextTypes.
 
 
 async def ver_plan_de_nuevo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    perfil = obtener_usuario(update.effective_user.id)
+    telegram_id = update.effective_user.id
+    perfil = obtener_usuario(telegram_id)
     if not perfil or not perfil.get("nivel"):
         await update.message.reply_text("Todavía no tienes un plan. Escribe /start para hacer la encuesta.")
         return
 
-    await update.message.reply_text("Aquí está tu plan:", reply_markup=ReplyKeyboardRemove())
-    if perfil.get("plan_texto"):
+    # fecha_actualizacion se marca cada vez que cambia algo relevante
+    # (marca, kilometraje, objetivo, días, metodología, restricciones o
+    # preferencias — ver tocar_fecha_actualizacion). plan_generado_en se
+    # marca cada vez que se genera un plan. Si el perfil cambió después
+    # de la última vez que se generó el plan, el plan guardado quedó
+    # desactualizado y hay que rehacerlo. Si no cambió nada, mostramos
+    # el que ya tenemos guardado y no gastamos una llamada a la IA.
+    fecha_actualizacion = perfil.get("fecha_actualizacion")
+    plan_generado_en = perfil.get("plan_generado_en")
+    hay_plan_guardado = bool(perfil.get("plan_texto"))
+    plan_desactualizado = not hay_plan_guardado or not plan_generado_en or (
+        fecha_actualizacion and fecha_actualizacion > plan_generado_en
+    )
+
+    if not plan_desactualizado:
+        await update.message.reply_text("Aquí está tu plan:", reply_markup=ReplyKeyboardRemove())
+        await enviar_mensaje_largo(update, perfil["plan_texto"], reply_markup=teclado_principal())
+        return
+
+    if hay_plan_guardado:
+        await update.message.reply_text(
+            "Cambiaron algunos datos de tu perfil desde la última vez que armé tu "
+            "plan — dame un momento para ajustarlo...",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+    else:
+        await update.message.reply_text(
+            "Todavía no tenías un plan generado — dame un momento para armarlo...",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+
+    await update.message.chat.send_action(action="typing")
+    contexto_json = obtener_contexto_corredor(telegram_id)
+    plan_texto = pedir_plan_inicial(contexto_json)
+
+    if plan_texto:
+        guardar_plan_texto(telegram_id, plan_texto)
+        await enviar_mensaje_largo(update, plan_texto, reply_markup=teclado_principal())
+    elif hay_plan_guardado:
+        await update.message.reply_text(
+            "Tuve un problema actualizando tu plan (puede ser un límite de uso "
+            "de la IA o un error temporal). Te muestro el más reciente que "
+            "tengo guardado, aunque puede no reflejar tus últimos cambios."
+        )
         await enviar_mensaje_largo(update, perfil["plan_texto"], reply_markup=teclado_principal())
     else:
-        await enviar_mensaje_largo(update, PLANES[perfil["nivel"]], reply_markup=teclado_principal())
+        await update.message.reply_text(
+            "Tuve un problema generando tu plan. Toma este plan general mientras tanto."
+        )
+        await enviar_mensaje_largo(
+            update, PLANES.get(perfil["nivel"], PLANES["Principiante"]), reply_markup=teclado_principal()
+        )
 
 
 async def mostrar_menu_datos_personales(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1183,6 +1296,31 @@ async def manejar_pregunta_coach(update: Update, context: ContextTypes.DEFAULT_T
     await enviar_mensaje_largo(update, respuesta, reply_markup=teclado_principal())
 
 
+async def manejar_audio_no_soportado(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    El bot no transcribe notas de voz ni audios — antes esto se quedaba
+    en silencio (el usuario veía 'escribiendo...' o nada, sin ninguna
+    respuesta) porque ningún handler estaba registrado para
+    filters.VOICE/filters.AUDIO. Avisamos explícitamente en vez de
+    dejarlo sin respuesta.
+    """
+    await update.message.reply_text(
+        "Por ahora solo puedo leer mensajes de texto — no proceso notas de voz "
+        "ni audios. ¿Puedes escribirme lo mismo en un mensaje de texto?"
+    )
+
+
+async def manejar_imagen_no_soportada(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Mismo caso que manejar_audio_no_soportado, pero para fotos o
+    imágenes enviadas como documento.
+    """
+    await update.message.reply_text(
+        "Por ahora solo puedo leer mensajes de texto — no proceso fotos ni "
+        "imágenes. ¿Puedes escribirme los datos en un mensaje de texto?"
+    )
+
+
 def parsear_duracion_a_minutos(texto: str):
     """
     Convierte texto libre de duración a minutos (float). Acepta:
@@ -1408,6 +1546,7 @@ conversacion = ConversationHandler(
     entry_points=[
         CommandHandler("start", start),
         MessageHandler(filters.Regex(f"^{BTN_ACTUALIZAR}$"), iniciar_encuesta_forzada),
+        MessageHandler(filters.Regex(f"^{BTN_CAMBIAR_METODOLOGIA}$"), iniciar_cambio_metodologia),
     ],
     states={
         NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre)],
@@ -1503,6 +1642,10 @@ app.add_handler(MessageHandler(filters.Regex(f"^{BTN_DATOS_PERSONALES}$"), mostr
 app.add_handler(MessageHandler(filters.Regex(f"^{BTN_VOLVER}$"), volver_menu_principal))
 app.add_handler(MessageHandler(filters.Regex(f"^{BTN_COACH}$"), invitar_pregunta_coach))
 app.add_handler(MessageHandler(filters.Regex(f"^{BTN_DESEMPENO}$"), analizar_desempeno))
+# Audio/fotos: el bot no los procesa, así que se avisa en vez de dejar al
+# usuario sin ninguna respuesta.
+app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, manejar_audio_no_soportado))
+app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, manejar_imagen_no_soportada))
 # Cualquier otro texto que no encaje arriba se trata como pregunta para el coach de IA
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_pregunta_coach))
 app.add_error_handler(manejar_error)

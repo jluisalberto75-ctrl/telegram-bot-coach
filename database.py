@@ -44,6 +44,9 @@ def _asegurar_columnas_usuarios(cursor):
     if "metodologia" not in columnas_existentes:
         cursor.execute("ALTER TABLE usuarios ADD COLUMN metodologia TEXT")
 
+    if "plan_generado_en" not in columnas_existentes:
+        cursor.execute("ALTER TABLE usuarios ADD COLUMN plan_generado_en TEXT")
+
 
 def iniciar_db():
     conexion = sqlite3.connect(DB_PATH)
@@ -83,7 +86,8 @@ def iniciar_db():
             fecha_registro TEXT,
             fecha_actualizacion TEXT,
             plan_texto TEXT,
-            metodologia TEXT
+            metodologia TEXT,
+            plan_generado_en TEXT
         )
         """
     )
