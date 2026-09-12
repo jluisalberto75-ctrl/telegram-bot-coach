@@ -5,7 +5,6 @@ webhooks. No contiene lógica de negocio propia — es "solo ensamblaje".
 """
 
 import os
-import logging
 
 from dotenv import load_dotenv
 from telegram.ext import (
@@ -14,16 +13,6 @@ from telegram.ext import (
     ConversationHandler,
     MessageHandler,
     filters,
-)
-
-# Sin esto, los logger.error()/logger.exception() de ia_coach.py y
-# manejo_errores.py no tenían ningún handler configurado en ningún
-# punto del proyecto — Python los manda a un handler de último recurso
-# sin timestamp ni nombre de módulo, lo que hace mucho más difícil
-# encontrarlos entre el resto de la salida en los logs de Render.
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
 from database import iniciar_db
