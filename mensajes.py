@@ -30,12 +30,12 @@ def dividir_mensaje_largo(texto, limite=3500):
     return partes
 
 
-async def enviar_mensaje_largo(update: Update, texto: str, reply_markup=None):
+async def enviar_mensaje_largo(update: Update, texto: str, reply_markup=None, parse_mode=None):
     partes = dividir_mensaje_largo(texto)
     for i, parte in enumerate(partes):
         es_ultima = i == len(partes) - 1
         await update.message.reply_text(
-            parte, reply_markup=reply_markup if es_ultima else None
+            parte, reply_markup=reply_markup if es_ultima else None, parse_mode=parse_mode
         )
 
 
